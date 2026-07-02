@@ -340,6 +340,41 @@ def build_mfcc_stat_dataset(df, sample_rate=SAMPLE_RATE):
     return X, y, groups, label_encoder
 
 
+def _central_pca_view(pca_df, x_col="PC1", y_col="PC2", q=0.02, y_zoom=0.55):
+    x_low, x_high = pca_df[x_col].quantile([q, 1 - q])
+    y_low, y_high = pca_df[y_col].quantile([q, 1 - q])
+    view_df = pca_df[
+        pca_df[x_col].between(x_low, x_high)
+        & pca_df[y_col].between(y_low, y_high)
+    ].copy()
+
+    x_center = float((x_low + x_high) / 2)
+    y_center = float((y_low + y_high) / 2)
+    x_half = float((x_high - x_low) / 2) * 1.12
+    y_half = float((y_high - y_low) / 2) * y_zoom
+    y_half = max(y_half, 1e-6)
+
+    limits = {
+        "xlim": (x_center - x_half, x_center + x_half),
+        "ylim": (y_center - y_half, y_center + y_half),
+        "shown": len(view_df),
+        "total": len(pca_df),
+    }
+    return view_df, limits
+
+
+def _finish_pca_plot(title, limits):
+    plt.title(f"{title}\ncentral view: {limits['shown']}/{limits['total']} samples")
+    plt.xlim(*limits["xlim"])
+    plt.ylim(*limits["ylim"])
+    plt.axhline(0, color="gray", linewidth=0.8, alpha=0.4)
+    plt.axvline(0, color="gray", linewidth=0.8, alpha=0.4)
+    plt.gca().set_aspect("auto")
+    plt.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
+    plt.tight_layout()
+    plt.show()
+
+
 def plot_pca_mfcc(df, X, random_state=RANDOM_STATE):
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
@@ -348,17 +383,14 @@ def plot_pca_mfcc(df, X, random_state=RANDOM_STATE):
     pca_df = df.copy()
     pca_df["PC1"] = X_pca[:, 0]
     pca_df["PC2"] = X_pca[:, 1]
+    view_df, limits = _central_pca_view(pca_df)
     plt.figure(figsize=(9, 7))
-    sns.scatterplot(data=pca_df, x="PC1", y="PC2", hue="label", style="speaker_id", s=80, alpha=0.85)
-    plt.title(
+    sns.scatterplot(data=view_df, x="PC1", y="PC2", hue="label", style="speaker_id", s=85, alpha=0.88)
+    title = (
         f"MFCC PCA: PC1 {pca.explained_variance_ratio_[0] * 100:.1f}%, "
         f"PC2 {pca.explained_variance_ratio_[1] * 100:.1f}%"
     )
-    plt.axhline(0, color="gray", linewidth=0.8, alpha=0.4)
-    plt.axvline(0, color="gray", linewidth=0.8, alpha=0.4)
-    plt.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
-    plt.tight_layout()
-    plt.show()
+    _finish_pca_plot(title, limits)
     return X_scaled, pca_df, pca
 
 
@@ -380,14 +412,10 @@ def plot_lda_mfcc(df, X_scaled, y, label_encoder):
 
 
 def plot_pca_by_speaker(pca_df):
+    view_df, limits = _central_pca_view(pca_df)
     plt.figure(figsize=(9, 7))
-    sns.scatterplot(data=pca_df, x="PC1", y="PC2", hue="speaker_id", style="label", s=80, alpha=0.85)
-    plt.title("MFCC PCA colored by speaker")
-    plt.axhline(0, color="gray", linewidth=0.8, alpha=0.4)
-    plt.axvline(0, color="gray", linewidth=0.8, alpha=0.4)
-    plt.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
-    plt.tight_layout()
-    plt.show()
+    sns.scatterplot(data=view_df, x="PC1", y="PC2", hue="speaker_id", style="label", s=85, alpha=0.88)
+    _finish_pca_plot("MFCC PCA colored by speaker", limits)
 
 
 def make_split(df, y, groups, mode="random", random_state=RANDOM_STATE):
