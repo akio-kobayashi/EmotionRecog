@@ -166,11 +166,45 @@ def compute_mfcc(y, sr, n_mfcc=20):
 
 def plot_mfcc(y, sr, n_mfcc=20):
     mfcc = compute_mfcc(y, sr, n_mfcc=n_mfcc)
-    plt.figure(figsize=(11, 4))
-    librosa.display.specshow(mfcc, sr=sr, hop_length=160, x_axis="time", cmap="coolwarm")
-    plt.colorbar()
-    plt.title(f"MFCC: {n_mfcc} coefficients over time")
-    plt.ylabel("MFCC coefficient")
+
+    # C0 is strongly related to the overall log-energy level and often dominates
+    # the color scale. For teaching, show C1.. as row-wise normalized changes.
+    mfcc_view = mfcc[1:]
+    row_mean = mfcc_view.mean(axis=1, keepdims=True)
+    row_std = mfcc_view.std(axis=1, keepdims=True)
+    mfcc_z = (mfcc_view - row_mean) / np.maximum(row_std, 1e-6)
+
+    fig, axes = plt.subplots(
+        2,
+        1,
+        figsize=(11, 6),
+        gridspec_kw={"height_ratios": [3, 1.2]},
+        sharex=True,
+    )
+    img = librosa.display.specshow(
+        mfcc_z,
+        sr=sr,
+        hop_length=160,
+        x_axis="time",
+        cmap="coolwarm",
+        vmin=-2.5,
+        vmax=2.5,
+        ax=axes[0],
+    )
+    axes[0].set_title("MFCC variation over time: C1-C19, row-wise z-score")
+    axes[0].set_ylabel("MFCC coefficient")
+    axes[0].set_yticks(np.arange(0, n_mfcc - 1, 3))
+    axes[0].set_yticklabels([f"C{i}" for i in range(1, n_mfcc, 3)])
+    fig.colorbar(img, ax=axes[0], label="within-coefficient z-score")
+
+    times = librosa.frames_to_time(np.arange(mfcc.shape[1]), sr=sr, hop_length=160)
+    for coef_index in [1, 2, 3, 4]:
+        axes[1].plot(times, mfcc_z[coef_index - 1], linewidth=1.1, label=f"C{coef_index}")
+    axes[1].axhline(0, color="gray", linewidth=0.8, alpha=0.5)
+    axes[1].set_title("Selected low-order MFCC trajectories")
+    axes[1].set_xlabel("Time [s]")
+    axes[1].set_ylabel("z-score")
+    axes[1].legend(ncol=4, loc="upper right")
     plt.tight_layout()
     plt.show()
     return mfcc
