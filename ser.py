@@ -322,6 +322,7 @@ def draw_spectrogram_with_formants(path, maximum_formant=5500, max_frequency=800
     plt.ylim(0, max_frequency)
     plt.xlabel("Time [s]")
     plt.ylabel("Frequency [Hz]")
+    plt.title("Estimated formant tracks; points may appear in silence/unvoiced regions")
     plt.legend(loc="upper right")
     plt.tight_layout()
     plt.show()
