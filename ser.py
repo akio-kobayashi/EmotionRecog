@@ -190,6 +190,87 @@ def plot_spectrogram(y, sr):
     plt.show()
 
 
+def plot_fft_sine_demo(sample_rate=8000, duration=0.05):
+    """人工的な正弦波を使って，FFTの意味を可視化する。
+
+    2つの周波数の正弦波を足し合わせると，時間波形だけでは成分が見えにくい。
+    FFTを使うと，どの周波数が含まれているかがピークとして現れる。
+    ノートブックでは「波形を周波数成分に分ける」という直観を作るために使う。
+    """
+    t = np.arange(int(sample_rate * duration)) / sample_rate
+    low_freq = 300
+    high_freq = 900
+    signal = np.sin(2 * np.pi * low_freq * t) + 0.6 * np.sin(2 * np.pi * high_freq * t)
+
+    freqs = np.fft.rfftfreq(len(signal), d=1 / sample_rate)
+    spectrum = np.abs(np.fft.rfft(signal))
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 3.5))
+    axes[0].plot(t * 1000, signal, linewidth=1.2)
+    axes[0].set_title("Synthetic waveform: 300 Hz + 900 Hz")
+    axes[0].set_xlabel("Time [ms]")
+    axes[0].set_ylabel("Amplitude")
+
+    axes[1].plot(freqs, spectrum, linewidth=1.2)
+    axes[1].set_xlim(0, 1500)
+    axes[1].set_title("FFT magnitude")
+    axes[1].set_xlabel("Frequency [Hz]")
+    axes[1].set_ylabel("Magnitude")
+    axes[1].axvline(low_freq, color="tab:red", linestyle="--", alpha=0.7)
+    axes[1].axvline(high_freq, color="tab:red", linestyle="--", alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_stft_spectrogram_demo(sample_rate=4000):
+    """周波数が時間とともに変わる人工信号で，短時間FFTを説明する。
+
+    音声全体に1回だけFFTをかけると「どの周波数が含まれるか」は分かるが，
+    「いつ含まれたか」は分からない。短い時間窓をずらしながらFFTを繰り返すと，
+    時間と周波数の両方を持つスペクトログラムになる。
+    """
+    segment_duration = 0.45
+    freqs_by_segment = [300, 700, 1100]
+    signal_parts = []
+    for freq in freqs_by_segment:
+        t_seg = np.arange(int(sample_rate * segment_duration)) / sample_rate
+        signal_parts.append(np.sin(2 * np.pi * freq * t_seg))
+    signal = np.concatenate(signal_parts)
+    t = np.arange(len(signal)) / sample_rate
+
+    fft_freqs = np.fft.rfftfreq(len(signal), d=1 / sample_rate)
+    whole_spectrum = np.abs(np.fft.rfft(signal))
+    stft = librosa.stft(signal, n_fft=512, hop_length=64, win_length=256)
+    stft_db = librosa.amplitude_to_db(np.abs(stft), ref=np.max)
+
+    fig, axes = plt.subplots(3, 1, figsize=(11, 8), gridspec_kw={"height_ratios": [1, 1, 1.5]})
+    axes[0].plot(t, signal, linewidth=0.8)
+    axes[0].set_title("Synthetic signal: frequency changes over time")
+    axes[0].set_xlabel("Time [s]")
+    axes[0].set_ylabel("Amplitude")
+
+    axes[1].plot(fft_freqs, whole_spectrum, linewidth=1.1)
+    axes[1].set_xlim(0, 1500)
+    axes[1].set_title("One FFT over the whole signal: time order is lost")
+    axes[1].set_xlabel("Frequency [Hz]")
+    axes[1].set_ylabel("Magnitude")
+
+    img = librosa.display.specshow(
+        stft_db,
+        sr=sample_rate,
+        hop_length=64,
+        x_axis="time",
+        y_axis="hz",
+        cmap="magma",
+        ax=axes[2],
+    )
+    axes[2].set_ylim(0, 1500)
+    axes[2].set_title("Short-time FFT: spectrogram keeps time and frequency")
+    fig.colorbar(img, ax=axes[2], format="%+2.0f dB")
+    plt.tight_layout()
+    plt.show()
+
+
 def compute_mel_db(y, sr):
     """音声から対数メルスペクトログラムを計算する。
 
@@ -255,6 +336,59 @@ def plot_log_mel_dct_frame(mel_db, n_mfcc=20):
     axes[1].set_title("DCT coefficients: MFCC")
     axes[1].set_xlabel("MFCC coefficient index")
     axes[1].set_ylabel("Coefficient value")
+    plt.tight_layout()
+    plt.show()
+
+
+def _dct_type2_ortho_matrix(n):
+    """NumPyだけでDCT-IIの直交行列を作る。
+
+    scipyを追加依存にしないため，教材用の小さなDCTは行列積として計算する。
+    librosaのMFCCで使われるDCT-IIの直交正規化と同じ考え方である。
+    """
+    k = np.arange(n)[:, None]
+    i = np.arange(n)[None, :]
+    basis = np.cos(np.pi * (i + 0.5) * k / n)
+    basis[0, :] *= np.sqrt(1 / n)
+    basis[1:, :] *= np.sqrt(2 / n)
+    return basis
+
+
+def plot_dct_reconstruction_demo(mel_db, keep_coeffs=(4, 8, 20)):
+    """対数メルスペクトルをDCTし，低次係数だけで再構成する様子を描く。
+
+    DCT係数の低次成分だけを残して逆DCTすると，細かな山谷が減り，
+    なめらかなスペクトル包絡に近い曲線になる。これは「低次MFCCが
+    スペクトルの大まかな形を表しやすい」という説明に対応する。
+    """
+    frame_index = mel_db.shape[1] // 2
+    log_mel_frame = mel_db[:, frame_index]
+    dct_matrix = _dct_type2_ortho_matrix(len(log_mel_frame))
+    coeffs = dct_matrix @ log_mel_frame
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 4))
+    mel_bins = np.arange(len(log_mel_frame))
+    axes[0].plot(mel_bins, log_mel_frame, color="black", linewidth=1.5, label="original log-Mel frame")
+    for keep in keep_coeffs:
+        kept = np.zeros_like(coeffs)
+        kept[:keep] = coeffs[:keep]
+        reconstructed = dct_matrix.T @ kept
+        axes[0].plot(mel_bins, reconstructed, linewidth=1.2, label=f"reconstructed with first {keep}")
+    axes[0].set_title("Low-order DCT coefficients give a smoother envelope")
+    axes[0].set_xlabel("Mel filter index")
+    axes[0].set_ylabel("Power [dB]")
+    axes[0].legend()
+
+    show_n = min(30, len(coeffs))
+    markerline, stemlines, baseline = axes[1].stem(np.arange(show_n), coeffs[:show_n])
+    markerline.set_markersize(4)
+    stemlines.set_linewidth(1.0)
+    baseline.set_linewidth(0.8)
+    axes[1].axvspan(-0.5, keep_coeffs[0] - 0.5, color="tab:orange", alpha=0.18, label="lowest coefficients")
+    axes[1].set_title("DCT coefficients of one log-Mel frame")
+    axes[1].set_xlabel("DCT coefficient index")
+    axes[1].set_ylabel("Coefficient value")
+    axes[1].legend()
     plt.tight_layout()
     plt.show()
 
