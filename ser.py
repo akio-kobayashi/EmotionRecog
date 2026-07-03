@@ -18,6 +18,7 @@
 - numpy / pandas: 数値配列と表形式データを扱うための基本ライブラリ。
 - matplotlib / seaborn: 波形，スペクトログラム，散布図，混同行列などを描くための
   可視化ライブラリ。
+- japanize_matplotlib: Matplotlibで日本語フォントを使えるようにするライブラリ。
 - scikit-learn: PCA，LDA，データ分割，標準化，評価指標を使うための機械学習
   ライブラリ。
 - PyTorch: LSTMモデルを作り，学習・評価するための深層学習ライブラリ。
@@ -38,6 +39,10 @@ import librosa.display
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+try:
+    import japanize_matplotlib  # noqa: F401  # Matplotlibの日本語表示を有効にする。
+except ImportError:
+    pass
 
 # PraatをPythonから呼び出すためのライブラリ。
 # F0（ピッチ）やフォルマントの推定で使う。
@@ -158,9 +163,9 @@ def plot_waveform(y, sr):
     time = np.arange(len(y)) / sr
     plt.figure(figsize=(11, 3))
     plt.plot(time, y, linewidth=0.8)
-    plt.title("Waveform")
-    plt.xlabel("Time [s]")
-    plt.ylabel("Amplitude")
+    plt.title("波形")
+    plt.xlabel("時間 [秒]")
+    plt.ylabel("振幅")
     plt.tight_layout()
     plt.show()
 
@@ -185,7 +190,7 @@ def plot_spectrogram(y, sr):
         cmap="magma",
     )
     plt.colorbar(format="%+2.0f dB")
-    plt.title("Linear-frequency Spectrogram")
+    plt.title("線形周波数スペクトログラム")
     plt.tight_layout()
     plt.show()
 
@@ -207,17 +212,94 @@ def plot_fft_sine_demo(sample_rate=8000, duration=0.05):
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 3.5))
     axes[0].plot(t * 1000, signal, linewidth=1.2)
-    axes[0].set_title("Synthetic waveform: 300 Hz + 900 Hz")
-    axes[0].set_xlabel("Time [ms]")
-    axes[0].set_ylabel("Amplitude")
+    axes[0].set_title("人工波形: 300 Hz + 900 Hz")
+    axes[0].set_xlabel("時間 [ミリ秒]")
+    axes[0].set_ylabel("振幅")
 
     axes[1].plot(freqs, spectrum, linewidth=1.2)
     axes[1].set_xlim(0, 1500)
-    axes[1].set_title("FFT magnitude")
-    axes[1].set_xlabel("Frequency [Hz]")
-    axes[1].set_ylabel("Magnitude")
+    axes[1].set_title("FFTの振幅スペクトル")
+    axes[1].set_xlabel("周波数 [Hz]")
+    axes[1].set_ylabel("振幅")
     axes[1].axvline(low_freq, color="tab:red", linestyle="--", alpha=0.7)
     axes[1].axvline(high_freq, color="tab:red", linestyle="--", alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
+
+def _dct_type2_ortho_matrix(n):
+    """NumPyだけでDCT-IIの直交行列を作る。
+
+    scipyを追加依存にしないため，教材用の小さなDCTは行列積として計算する。
+    librosaのMFCCで使われるDCT-IIの直交正規化と同じ考え方である。
+    """
+    k = np.arange(n)[:, None]
+    i = np.arange(n)[None, :]
+    basis = np.cos(np.pi * (i + 0.5) * k / n)
+    basis[0, :] *= np.sqrt(1 / n)
+    basis[1:, :] *= np.sqrt(2 / n)
+    return basis
+
+
+def plot_fft_dct_comparison_demo(sample_rate=8000, duration=0.05):
+    """同じ信号をFFTとDCTで分析し，基底（部品となる波）の違いを可視化する。
+
+    FFTは正弦波と余弦波を組み合わせた部品を使う。
+    そのため，各周波数について強さ（振幅）だけでなく位相（時間方向のずれ）も得られる。
+    DCTは余弦波だけを部品として使い，有限長信号を左右対称に延長したように扱う。
+    位相（時間方向のずれ）を明示的に扱うというより，実数係数で信号やスペクトルの形を要約する用途に向く。
+    そのため，同じ波形を分析しても，係数の見え方と得意な用途は同じにはならない。
+
+    注意:
+        MFCCではDCTを時間波形ではなく，周波数方向に並んだ対数メルスペクトルに
+        適用する。この図は，FFTとDCTで使う基底（部品となる波）の違いを理解するための補助図である。
+    """
+    t = np.arange(int(sample_rate * duration)) / sample_rate
+    low_freq = 300
+    high_freq = 900
+    signal = np.sin(2 * np.pi * low_freq * t) + 0.6 * np.sin(2 * np.pi * high_freq * t)
+
+    fft_freqs = np.fft.rfftfreq(len(signal), d=1 / sample_rate)
+    fft_values = np.fft.rfft(signal)
+    fft_mag = np.abs(fft_values)
+    fft_phase = np.angle(fft_values)
+
+    dct_matrix = _dct_type2_ortho_matrix(len(signal))
+    dct_coeffs = dct_matrix @ signal
+    dct_freqs = np.arange(len(signal)) * sample_rate / (2 * len(signal))
+
+    fig, axes = plt.subplots(4, 1, figsize=(11, 10), gridspec_kw={"height_ratios": [1.1, 1, 1, 1]})
+    axes[0].plot(t * 1000, signal, linewidth=1.1)
+    axes[0].set_title("同じ信号: 300 Hz + 900 Hz の正弦波")
+    axes[0].set_xlabel("時間 [ミリ秒]")
+    axes[0].set_ylabel("振幅")
+
+    axes[1].plot(fft_freqs, fft_mag, linewidth=1.1)
+    axes[1].set_xlim(0, 1500)
+    axes[1].set_title("FFTの強さ（振幅）: どの周波数がどれくらい強いか")
+    axes[1].set_xlabel("周波数 [Hz]")
+    axes[1].set_ylabel("振幅")
+    axes[1].axvline(low_freq, color="tab:red", linestyle="--", alpha=0.7)
+    axes[1].axvline(high_freq, color="tab:red", linestyle="--", alpha=0.7)
+
+    phase_show = (fft_freqs <= 1500) & (fft_mag > fft_mag.max() * 0.05)
+    axes[2].stem(fft_freqs[phase_show], fft_phase[phase_show])
+    axes[2].set_xlim(0, 1500)
+    axes[2].set_ylim(-np.pi, np.pi)
+    axes[2].set_title("FFTの位相（時間方向のずれ）: 各周波数成分のずれも保持する")
+    axes[2].set_xlabel("周波数 [Hz]")
+    axes[2].set_ylabel("位相 [rad]")
+    axes[2].axvline(low_freq, color="tab:red", linestyle="--", alpha=0.7)
+    axes[2].axvline(high_freq, color="tab:red", linestyle="--", alpha=0.7)
+
+    show = dct_freqs <= 1500
+    axes[3].plot(dct_freqs[show], np.abs(dct_coeffs[show]), linewidth=1.1, color="tab:green")
+    axes[3].set_xlim(0, 1500)
+    axes[3].set_title("DCT: 余弦波だけを部品として形を実数係数に要約する")
+    axes[3].set_xlabel("DCTで使う余弦波のおおよその周波数 [Hz]")
+    axes[3].set_ylabel("|係数|")
+    axes[3].axvline(low_freq, color="tab:red", linestyle="--", alpha=0.7)
+    axes[3].axvline(high_freq, color="tab:red", linestyle="--", alpha=0.7)
     plt.tight_layout()
     plt.show()
 
@@ -245,15 +327,15 @@ def plot_stft_spectrogram_demo(sample_rate=4000):
 
     fig, axes = plt.subplots(3, 1, figsize=(11, 8), gridspec_kw={"height_ratios": [1, 1, 1.5]})
     axes[0].plot(t, signal, linewidth=0.8)
-    axes[0].set_title("Synthetic signal: frequency changes over time")
-    axes[0].set_xlabel("Time [s]")
-    axes[0].set_ylabel("Amplitude")
+    axes[0].set_title("人工信号: 時間とともに周波数が変化")
+    axes[0].set_xlabel("時間 [秒]")
+    axes[0].set_ylabel("振幅")
 
     axes[1].plot(fft_freqs, whole_spectrum, linewidth=1.1)
     axes[1].set_xlim(0, 1500)
-    axes[1].set_title("One FFT over the whole signal: time order is lost")
-    axes[1].set_xlabel("Frequency [Hz]")
-    axes[1].set_ylabel("Magnitude")
+    axes[1].set_title("全体に1回だけFFT: 時間順序は失われる")
+    axes[1].set_xlabel("周波数 [Hz]")
+    axes[1].set_ylabel("振幅")
 
     img = librosa.display.specshow(
         stft_db,
@@ -265,7 +347,7 @@ def plot_stft_spectrogram_demo(sample_rate=4000):
         ax=axes[2],
     )
     axes[2].set_ylim(0, 1500)
-    axes[2].set_title("Short-time FFT: spectrogram keeps time and frequency")
+    axes[2].set_title("短時間FFT: 時間と周波数を保ったスペクトログラム")
     fig.colorbar(img, ax=axes[2], format="%+2.0f dB")
     plt.tight_layout()
     plt.show()
@@ -307,7 +389,7 @@ def plot_mel_spectrogram(y, sr):
         cmap="magma",
     )
     plt.colorbar(format="%+2.0f dB")
-    plt.title("Mel Spectrogram")
+    plt.title("メルスペクトログラム")
     plt.tight_layout()
     plt.show()
     return mel_db
@@ -329,30 +411,15 @@ def plot_log_mel_dct_frame(mel_db, n_mfcc=20):
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 4))
     axes[0].plot(log_mel_frame, marker="o", markersize=3)
-    axes[0].set_title("One frame of log-Mel spectrum")
-    axes[0].set_xlabel("Mel filter index")
-    axes[0].set_ylabel("Power [dB]")
+    axes[0].set_title("対数メルスペクトルの1フレーム")
+    axes[0].set_xlabel("メルフィルタ番号")
+    axes[0].set_ylabel("パワー [dB]")
     axes[1].stem(np.arange(1, len(mfcc_frame) + 1), mfcc_frame)
-    axes[1].set_title("DCT coefficients: MFCC")
-    axes[1].set_xlabel("MFCC coefficient index")
-    axes[1].set_ylabel("Coefficient value")
+    axes[1].set_title("DCT係数: MFCC")
+    axes[1].set_xlabel("MFCC係数番号")
+    axes[1].set_ylabel("係数値")
     plt.tight_layout()
     plt.show()
-
-
-def _dct_type2_ortho_matrix(n):
-    """NumPyだけでDCT-IIの直交行列を作る。
-
-    scipyを追加依存にしないため，教材用の小さなDCTは行列積として計算する。
-    librosaのMFCCで使われるDCT-IIの直交正規化と同じ考え方である。
-    """
-    k = np.arange(n)[:, None]
-    i = np.arange(n)[None, :]
-    basis = np.cos(np.pi * (i + 0.5) * k / n)
-    basis[0, :] *= np.sqrt(1 / n)
-    basis[1:, :] *= np.sqrt(2 / n)
-    return basis
-
 
 def plot_dct_reconstruction_demo(mel_db, keep_coeffs=(4, 8, 20)):
     """対数メルスペクトルをDCTし，低次係数だけで再構成する様子を描く。
@@ -368,15 +435,15 @@ def plot_dct_reconstruction_demo(mel_db, keep_coeffs=(4, 8, 20)):
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 4))
     mel_bins = np.arange(len(log_mel_frame))
-    axes[0].plot(mel_bins, log_mel_frame, color="black", linewidth=1.5, label="original log-Mel frame")
+    axes[0].plot(mel_bins, log_mel_frame, color="black", linewidth=1.5, label="元の対数メルスペクトル")
     for keep in keep_coeffs:
         kept = np.zeros_like(coeffs)
         kept[:keep] = coeffs[:keep]
         reconstructed = dct_matrix.T @ kept
-        axes[0].plot(mel_bins, reconstructed, linewidth=1.2, label=f"reconstructed with first {keep}")
-    axes[0].set_title("Low-order DCT coefficients give a smoother envelope")
-    axes[0].set_xlabel("Mel filter index")
-    axes[0].set_ylabel("Power [dB]")
+        axes[0].plot(mel_bins, reconstructed, linewidth=1.2, label=f"低次 {keep} 個で再構成")
+    axes[0].set_title("低次DCT係数だけで滑らかな包絡に近づく")
+    axes[0].set_xlabel("メルフィルタ番号")
+    axes[0].set_ylabel("パワー [dB]")
     axes[0].legend()
 
     show_n = min(30, len(coeffs))
@@ -384,10 +451,10 @@ def plot_dct_reconstruction_demo(mel_db, keep_coeffs=(4, 8, 20)):
     markerline.set_markersize(4)
     stemlines.set_linewidth(1.0)
     baseline.set_linewidth(0.8)
-    axes[1].axvspan(-0.5, keep_coeffs[0] - 0.5, color="tab:orange", alpha=0.18, label="lowest coefficients")
-    axes[1].set_title("DCT coefficients of one log-Mel frame")
-    axes[1].set_xlabel("DCT coefficient index")
-    axes[1].set_ylabel("Coefficient value")
+    axes[1].axvspan(-0.5, keep_coeffs[0] - 0.5, color="tab:orange", alpha=0.18, label="低次係数")
+    axes[1].set_title("対数メルスペクトル1フレームのDCT係数")
+    axes[1].set_xlabel("DCT係数番号")
+    axes[1].set_ylabel("係数値")
     axes[1].legend()
     plt.tight_layout()
     plt.show()
@@ -446,19 +513,19 @@ def plot_mfcc(y, sr, n_mfcc=20):
         vmax=2.5,
         ax=axes[0],
     )
-    axes[0].set_title("MFCC variation over time: C1-C19, row-wise z-score")
-    axes[0].set_ylabel("MFCC coefficient")
+    axes[0].set_title("MFCCの時間変化: C1-C19を係数ごとに標準化")
+    axes[0].set_ylabel("MFCC係数")
     axes[0].set_yticks(np.arange(0, n_mfcc - 1, 3))
     axes[0].set_yticklabels([f"C{i}" for i in range(1, n_mfcc, 3)])
-    fig.colorbar(img, ax=axes[0], label="within-coefficient z-score")
+    fig.colorbar(img, ax=axes[0], label="係数内zスコア")
 
     times = librosa.frames_to_time(np.arange(mfcc.shape[1]), sr=sr, hop_length=160)
     for coef_index in [1, 2, 3, 4]:
         axes[1].plot(times, mfcc_z[coef_index - 1], linewidth=1.1, label=f"C{coef_index}")
     axes[1].axhline(0, color="gray", linewidth=0.8, alpha=0.5)
-    axes[1].set_title("Selected low-order MFCC trajectories")
-    axes[1].set_xlabel("Time [s]")
-    axes[1].set_ylabel("z-score")
+    axes[1].set_title("低次MFCC係数の時間変化")
+    axes[1].set_xlabel("時間 [秒]")
+    axes[1].set_ylabel("zスコア")
     axes[1].legend(ncol=4, loc="upper right")
     plt.tight_layout()
     plt.show()
@@ -486,7 +553,7 @@ def display_mfcc_summary(mfcc):
     plt.figure(figsize=(12, 4))
     sns.barplot(data=summary_long, x="coefficient", y="value", hue="variable")
     plt.xticks(rotation=45)
-    plt.title("MFCC summary statistics used for visualization")
+    plt.title("可視化に使うMFCC要約統計量")
     plt.tight_layout()
     plt.show()
     return summary
@@ -511,9 +578,9 @@ def draw_waveform_with_pitch(path, pitch_floor=75, pitch_ceiling=600):
 
     fig, ax1 = plt.subplots(figsize=(11, 3.5))
     ax1.plot(times, samples, linewidth=0.7, color="gray")
-    ax1.set_xlabel("Time [s]")
-    ax1.set_ylabel("Amplitude")
-    ax1.set_title("Waveform and Praat pitch track")
+    ax1.set_xlabel("時間 [秒]")
+    ax1.set_ylabel("振幅")
+    ax1.set_title("波形とPraatによるピッチ軌跡")
 
     ax2 = ax1.twinx()
     ax2.plot(pitch_times, f0, "o-", markersize=3, linewidth=1.2, color="tab:red", label="F0")
@@ -582,8 +649,8 @@ def summarize_pitch_by_label(df, random_state=RANDOM_STATE, n_per_label=10):
     plt.figure(figsize=(9, 4))
     sns.boxplot(data=stats, x="label", y="F0_mean")
     sns.stripplot(data=stats, x="label", y="F0_mean", color="black", alpha=0.5)
-    plt.title("Praat F0 mean by emotion")
-    plt.ylabel("F0 mean [Hz]")
+    plt.title("感情ラベルごとのPraat F0平均")
+    plt.ylabel("F0平均 [Hz]")
     plt.tight_layout()
     plt.show()
     return stats
@@ -621,9 +688,9 @@ def draw_spectrogram_with_formants(path, maximum_formant=5500, max_frequency=800
         plt.plot(times, values, "o", markersize=2, color=color, label=f"F{formant_index}")
 
     plt.ylim(0, max_frequency)
-    plt.xlabel("Time [s]")
-    plt.ylabel("Frequency [Hz]")
-    plt.title("Estimated formant tracks; points may appear in silence/unvoiced regions")
+    plt.xlabel("時間 [秒]")
+    plt.ylabel("周波数 [Hz]")
+    plt.title("推定フォルマント軌跡（無音・無声区間にも点が出る場合がある）")
     plt.legend(loc="upper right")
     plt.tight_layout()
     plt.show()
@@ -746,7 +813,7 @@ def _finish_pca_plot(title, limits):
     表示している点数をタイトルに出し，中心部分だけを表示していることが
     図から分かるようにする。
     """
-    plt.title(f"{title}\ncentral view: {limits['shown']}/{limits['total']} samples")
+    plt.title(f"{title}\n中心部分を表示: {limits['shown']}/{limits['total']} サンプル")
     plt.xlim(*limits["xlim"])
     plt.ylim(*limits["ylim"])
     plt.axhline(0, color="gray", linewidth=0.8, alpha=0.4)
@@ -777,7 +844,7 @@ def plot_pca_mfcc(df, X, random_state=RANDOM_STATE):
     plt.figure(figsize=(9, 7))
     sns.scatterplot(data=view_df, x="PC1", y="PC2", hue="label", style="speaker_id", s=85, alpha=0.88)
     title = (
-        f"MFCC PCA: PC1 {pca.explained_variance_ratio_[0] * 100:.1f}%, "
+        f"MFCCのPCA: PC1 {pca.explained_variance_ratio_[0] * 100:.1f}%, "
         f"PC2 {pca.explained_variance_ratio_[1] * 100:.1f}%"
     )
     _finish_pca_plot(title, limits)
@@ -798,7 +865,7 @@ def plot_lda_mfcc(df, X_scaled, y, label_encoder):
     lda_df["LD2"] = X_lda[:, 1]
     plt.figure(figsize=(9, 7))
     sns.scatterplot(data=lda_df, x="LD1", y="LD2", hue="label", style="speaker_id", s=80, alpha=0.85)
-    plt.title("MFCC LDA: supervised axes using emotion labels")
+    plt.title("MFCCのLDA: 感情ラベルを使った教師あり軸")
     plt.axhline(0, color="gray", linewidth=0.8, alpha=0.4)
     plt.axvline(0, color="gray", linewidth=0.8, alpha=0.4)
     plt.legend(bbox_to_anchor=(1.02, 1), loc="upper left")
@@ -816,7 +883,7 @@ def plot_pca_by_speaker(pca_df):
     view_df, limits = _central_pca_view(pca_df)
     plt.figure(figsize=(9, 7))
     sns.scatterplot(data=view_df, x="PC1", y="PC2", hue="speaker_id", style="label", s=85, alpha=0.88)
-    _finish_pca_plot("MFCC PCA colored by speaker", limits)
+    _finish_pca_plot("MFCCのPCA（話者で色分け）", limits)
 
 
 # ここから「MFCCの時系列を使うLSTM」に対応する処理。
@@ -1115,10 +1182,10 @@ def train_lstm(X_seq, seq_lengths, y, train_idx, val_idx, label_encoder, random_
     history_df = pd.DataFrame(history)
     display(history_df.tail())
     plt.figure(figsize=(10, 4))
-    plt.plot(history_df["epoch"], history_df["loss"], label="train loss")
-    plt.plot(history_df["epoch"], history_df["val_loss"], label="validation loss")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
+    plt.plot(history_df["epoch"], history_df["loss"], label="学習loss")
+    plt.plot(history_df["epoch"], history_df["val_loss"], label="検証loss")
+    plt.xlabel("エポック")
+    plt.ylabel("損失")
     plt.legend()
     plt.tight_layout()
     plt.show()
@@ -1153,12 +1220,12 @@ def evaluate_lstm(model, X_seq, seq_lengths, y, train_idx, test_idx, label_encod
     result = pd.DataFrame(
         [
             {
-                "model": "majority baseline",
+                "model": "多数派ベースライン",
                 "accuracy": accuracy_score(y[test_idx], majority_pred),
                 "macro_f1": f1_score(y[test_idx], majority_pred, average="macro", zero_division=0),
             },
             {
-                "model": "LSTM on MFCC sequence",
+                "model": "MFCC時系列LSTM",
                 "accuracy": accuracy_score(y[test_idx], pred),
                 "macro_f1": f1_score(y[test_idx], pred, average="macro", zero_division=0),
             },
@@ -1176,7 +1243,7 @@ def evaluate_lstm(model, X_seq, seq_lengths, y, train_idx, test_idx, label_encod
     display(prediction_summary)
     # 予測が1〜2種類の感情に集中している場合は，混同行列が1列に潰れやすい。
     if np.count_nonzero(prediction_summary["predicted_count"].to_numpy()) <= 2:
-        print("WARNING: predictions are concentrated in one or two labels. This model should not be interpreted as having learned emotion categories.")
+        print("警告: 予測が1〜2種類のラベルに集中しているため，感情カテゴリを十分に学習したとは解釈しにくい．")
 
     print(classification_report(y[test_idx], pred, target_names=label_encoder.classes_, zero_division=0))
     cm = confusion_matrix(y[test_idx], pred)
@@ -1189,9 +1256,9 @@ def evaluate_lstm(model, X_seq, seq_lengths, y, train_idx, test_idx, label_encod
         xticklabels=label_encoder.classes_,
         yticklabels=label_encoder.classes_,
     )
-    plt.xlabel("Predicted")
-    plt.ylabel("True")
-    plt.title("Confusion matrix: LSTM on MFCC sequence")
+    plt.xlabel("予測ラベル")
+    plt.ylabel("正解ラベル")
+    plt.title("混同行列: MFCC時系列を用いたLSTM")
     plt.tight_layout()
     plt.show()
     return pred, result, prediction_summary, cm
