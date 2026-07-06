@@ -57,7 +57,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 # Colab/Jupyter上で音声再生ボタンや表を表示するための道具。
-from IPython.display import Audio, display
+from IPython.display import Audio, clear_output, display
 
 # scikit-learnの機械学習・評価用部品。
 # PCA/LDAは可視化，metricsは評価指標，model_selectionはデータ分割，
@@ -239,69 +239,6 @@ def _dct_type2_ortho_matrix(n):
     basis[0, :] *= np.sqrt(1 / n)
     basis[1:, :] *= np.sqrt(2 / n)
     return basis
-
-
-def plot_fft_dct_comparison_demo(sample_rate=8000, duration=0.05):
-    """同じ信号をFFTとDCTで分析し，基底（部品となる波）の違いを可視化する。
-
-    FFTは正弦波と余弦波を組み合わせた部品を使う。
-    そのため，各周波数について強さ（振幅）だけでなく位相（時間方向のずれ）も得られる。
-    DCTは余弦波だけを部品として使い，有限長信号を左右対称に延長したように扱う。
-    位相（時間方向のずれ）を明示的に扱うというより，実数係数で信号やスペクトルの形を要約する用途に向く。
-    そのため，同じ波形を分析しても，係数の見え方と得意な用途は同じにはならない。
-
-    注意:
-        MFCCではDCTを時間波形ではなく，周波数方向に並んだ対数メルスペクトルに
-        適用する。この図は，FFTとDCTで使う基底（部品となる波）の違いを理解するための補助図である。
-    """
-    t = np.arange(int(sample_rate * duration)) / sample_rate
-    low_freq = 300
-    high_freq = 900
-    signal = np.sin(2 * np.pi * low_freq * t) + 0.6 * np.sin(2 * np.pi * high_freq * t)
-
-    fft_freqs = np.fft.rfftfreq(len(signal), d=1 / sample_rate)
-    fft_values = np.fft.rfft(signal)
-    fft_mag = np.abs(fft_values)
-    fft_phase = np.angle(fft_values)
-
-    dct_matrix = _dct_type2_ortho_matrix(len(signal))
-    dct_coeffs = dct_matrix @ signal
-    dct_freqs = np.arange(len(signal)) * sample_rate / (2 * len(signal))
-
-    fig, axes = plt.subplots(4, 1, figsize=(11, 10), gridspec_kw={"height_ratios": [1.1, 1, 1, 1]})
-    axes[0].plot(t * 1000, signal, linewidth=1.1)
-    axes[0].set_title("同じ信号: 300 Hz + 900 Hz の正弦波")
-    axes[0].set_xlabel("時間 [ミリ秒]")
-    axes[0].set_ylabel("振幅")
-
-    axes[1].plot(fft_freqs, fft_mag, linewidth=1.1)
-    axes[1].set_xlim(0, 1500)
-    axes[1].set_title("FFTの強さ（振幅）: どの周波数がどれくらい強いか")
-    axes[1].set_xlabel("周波数 [Hz]")
-    axes[1].set_ylabel("振幅")
-    axes[1].axvline(low_freq, color="tab:red", linestyle="--", alpha=0.7)
-    axes[1].axvline(high_freq, color="tab:red", linestyle="--", alpha=0.7)
-
-    phase_show = (fft_freqs <= 1500) & (fft_mag > fft_mag.max() * 0.05)
-    axes[2].stem(fft_freqs[phase_show], fft_phase[phase_show])
-    axes[2].set_xlim(0, 1500)
-    axes[2].set_ylim(-np.pi, np.pi)
-    axes[2].set_title("FFTの位相（時間方向のずれ）: 各周波数成分のずれも保持する")
-    axes[2].set_xlabel("周波数 [Hz]")
-    axes[2].set_ylabel("位相 [rad]")
-    axes[2].axvline(low_freq, color="tab:red", linestyle="--", alpha=0.7)
-    axes[2].axvline(high_freq, color="tab:red", linestyle="--", alpha=0.7)
-
-    show = dct_freqs <= 1500
-    axes[3].plot(dct_freqs[show], np.abs(dct_coeffs[show]), linewidth=1.1, color="tab:green")
-    axes[3].set_xlim(0, 1500)
-    axes[3].set_title("DCT: 余弦波だけを部品として形を実数係数に要約する")
-    axes[3].set_xlabel("DCTで使う余弦波のおおよその周波数 [Hz]")
-    axes[3].set_ylabel("|係数|")
-    axes[3].axvline(low_freq, color="tab:red", linestyle="--", alpha=0.7)
-    axes[3].axvline(high_freq, color="tab:red", linestyle="--", alpha=0.7)
-    plt.tight_layout()
-    plt.show()
 
 
 def plot_stft_spectrogram_demo(sample_rate=4000):
@@ -530,6 +467,256 @@ def plot_mfcc(y, sr, n_mfcc=20):
     plt.tight_layout()
     plt.show()
     return mfcc
+
+
+def _make_sample_dropdowns(df, prefix="", default_label="happy"):
+    """JNVサンプルを選ぶためのドロップダウン群を作る。"""
+    import ipywidgets as widgets
+
+    label_options = sorted(df["label"].unique())
+    speaker_options = sorted(df["speaker_id"].unique())
+    session_options = sorted(df["session"].unique())
+    utterance_options = sorted(df["utterance_id"].unique())
+    return {
+        "label": widgets.Dropdown(
+            options=label_options,
+            value=default_label if default_label in label_options else label_options[0],
+            description=f"{prefix}感情",
+        ),
+        "speaker_id": widgets.Dropdown(options=speaker_options, value=speaker_options[0], description=f"{prefix}話者"),
+        "session": widgets.Dropdown(options=session_options, value=session_options[0], description=f"{prefix}区分"),
+        "utterance_id": widgets.Dropdown(options=utterance_options, value=utterance_options[0], description=f"{prefix}番号"),
+    }
+
+
+def _selected_sample_row(df, controls):
+    """ドロップダウンで選ばれた条件に合うサンプルを1つ返す。"""
+    query = (
+        (df["label"] == controls["label"].value)
+        & (df["speaker_id"] == controls["speaker_id"].value)
+        & (df["session"] == controls["session"].value)
+        & (df["utterance_id"] == controls["utterance_id"].value)
+    )
+    matched = df[query]
+    if matched.empty:
+        return None
+    return matched.iloc[0]
+
+
+def _mfcc_zscore_for_display(y, sr, n_mfcc=20):
+    """比較表示用に，C1以降のMFCCを係数ごとに標準化する。"""
+    mfcc = compute_mfcc(y, sr, n_mfcc=n_mfcc)
+    mfcc_view = mfcc[1:]
+    row_mean = mfcc_view.mean(axis=1, keepdims=True)
+    row_std = mfcc_view.std(axis=1, keepdims=True) + 1e-8
+    return (mfcc_view - row_mean) / row_std
+
+
+def show_sample_explorer(df, default_label="happy", sample_rate=SAMPLE_RATE):
+    """感情・話者・区分・番号を選び，音声と特徴量をまとめて観察する。
+
+    ノートブックの基本セルは固定のサンプルで説明を進めるが，この関数では
+    学生が自分でサンプルを選び，音声再生，波形，スペクトログラム，MFCC，
+    必要に応じてF0やフォルマントを見比べられるようにする。
+    """
+    import ipywidgets as widgets
+
+    controls = _make_sample_dropdowns(df, default_label=default_label)
+    show_pitch = widgets.Checkbox(value=False, description="F0も表示")
+    show_formants = widgets.Checkbox(value=False, description="フォルマントも表示")
+    output = widgets.Output()
+
+    def update(_=None):
+        row = _selected_sample_row(df, controls)
+        with output:
+            clear_output(wait=True)
+            if row is None:
+                print("該当するサンプルがない。選択を変えること。")
+                return
+            y, sr = librosa.load(row["path"], sr=sample_rate, mono=True)
+            print(row[["label", "speaker_id", "session", "utterance_id", "path"]].to_dict())
+            display(Audio(y, rate=sr))
+            plot_waveform(y, sr)
+            plot_spectrogram(y, sr)
+            mel_db = plot_mel_spectrogram(y, sr)
+            plot_log_mel_dct_frame(mel_db)
+            plot_mfcc(y, sr)
+            if show_pitch.value:
+                pitch_stats = draw_waveform_with_pitch(row["path"])
+                display(pd.DataFrame([pitch_stats]).round(2))
+            if show_formants.value:
+                formant_stats = draw_spectrogram_with_formants(row["path"])
+                display(pd.DataFrame([formant_stats]).round(1))
+
+    widgets_to_watch = list(controls.values()) + [show_pitch, show_formants]
+    for widget in widgets_to_watch:
+        widget.observe(update, names="value")
+
+    ui = widgets.VBox(
+        [
+            widgets.HBox([controls["label"], controls["speaker_id"]]),
+            widgets.HBox([controls["session"], controls["utterance_id"]]),
+            widgets.HBox([show_pitch, show_formants]),
+        ]
+    )
+    display(ui, output)
+    update()
+
+
+def compare_samples(df, default_left="happy", default_right="sad", sample_rate=SAMPLE_RATE):
+    """2つのサンプルを左右に並べ，音声・波形・スペクトログラム・MFCCを比較する。"""
+    import ipywidgets as widgets
+
+    left = _make_sample_dropdowns(df, prefix="左", default_label=default_left)
+    right = _make_sample_dropdowns(df, prefix="右", default_label=default_right)
+    output = widgets.Output()
+
+    def _plot_pair(rows, waves, sr):
+        titles = [
+            f"{row['label']} / {row['speaker_id']} / {row['session']} / {row['utterance_id']}"
+            for row in rows
+        ]
+        fig, axes = plt.subplots(3, 2, figsize=(13, 8))
+        max_duration = max(len(y) / sr for y in waves)
+        for col, (row, y, title) in enumerate(zip(rows, waves, titles)):
+            time = np.arange(len(y)) / sr
+            axes[0, col].plot(time, y, linewidth=0.8)
+            axes[0, col].set_xlim(0, max_duration)
+            axes[0, col].set_title(title)
+            axes[0, col].set_xlabel("時間 [秒]")
+            axes[0, col].set_ylabel("振幅")
+
+            stft = librosa.stft(y, n_fft=1024, hop_length=160, win_length=400)
+            stft_db = librosa.amplitude_to_db(np.abs(stft), ref=np.max)
+            librosa.display.specshow(
+                stft_db,
+                sr=sr,
+                hop_length=160,
+                x_axis="time",
+                y_axis="hz",
+                cmap="magma",
+                ax=axes[1, col],
+            )
+            axes[1, col].set_title("スペクトログラム")
+
+            mfcc_z = _mfcc_zscore_for_display(y, sr)
+            img = librosa.display.specshow(
+                mfcc_z,
+                sr=sr,
+                hop_length=160,
+                x_axis="time",
+                cmap="coolwarm",
+                vmin=-2.5,
+                vmax=2.5,
+                ax=axes[2, col],
+            )
+            axes[2, col].set_title("MFCC（C1以降を係数ごとに標準化）")
+            axes[2, col].set_ylabel("MFCC係数")
+        fig.colorbar(img, ax=axes[2, :], label="係数内zスコア")
+        plt.tight_layout()
+        plt.show()
+
+    def update(_=None):
+        rows = [_selected_sample_row(df, left), _selected_sample_row(df, right)]
+        with output:
+            clear_output(wait=True)
+            if rows[0] is None or rows[1] is None:
+                print("該当するサンプルがない。選択を変えること。")
+                return
+            waves = [librosa.load(row["path"], sr=sample_rate, mono=True)[0] for row in rows]
+            print("左")
+            display(Audio(waves[0], rate=sample_rate))
+            print("右")
+            display(Audio(waves[1], rate=sample_rate))
+            _plot_pair(rows, waves, sample_rate)
+
+    for widget in list(left.values()) + list(right.values()):
+        widget.observe(update, names="value")
+
+    ui = widgets.VBox(
+        [
+            widgets.HTML("<b>左のサンプル</b>"),
+            widgets.HBox([left["label"], left["speaker_id"], left["session"], left["utterance_id"]]),
+            widgets.HTML("<b>右のサンプル</b>"),
+            widgets.HBox([right["label"], right["speaker_id"], right["session"], right["utterance_id"]]),
+        ]
+    )
+    display(ui, output)
+    update()
+
+
+def interactive_fft_phase_demo(sample_rate=8000, duration=0.05):
+    """300 Hzと900 Hzの成分に位相差を与え，FFTの位相スペクトルを見る。"""
+    import ipywidgets as widgets
+
+    phase_300 = widgets.FloatSlider(
+        value=np.pi / 3,
+        min=-np.pi,
+        max=np.pi,
+        step=np.pi / 12,
+        description="300 Hz位相",
+        readout_format=".2f",
+    )
+    phase_900 = widgets.FloatSlider(
+        value=-np.pi / 4,
+        min=-np.pi,
+        max=np.pi,
+        step=np.pi / 12,
+        description="900 Hz位相",
+        readout_format=".2f",
+    )
+    output = widgets.Output()
+
+    def update(_=None):
+        t = np.arange(int(sample_rate * duration)) / sample_rate
+        freqs = np.array([300, 900])
+        amps = np.array([1.0, 0.6])
+        phases = np.array([phase_300.value, phase_900.value])
+        signal = amps[0] * np.cos(2 * np.pi * freqs[0] * t + phases[0])
+        signal += amps[1] * np.cos(2 * np.pi * freqs[1] * t + phases[1])
+
+        fft_freqs = np.fft.rfftfreq(len(signal), d=1 / sample_rate)
+        fft_values = np.fft.rfft(signal)
+        indices = [np.argmin(np.abs(fft_freqs - freq)) for freq in freqs]
+        measured = np.angle(fft_values[indices])
+        expected = np.angle(np.exp(1j * phases))
+
+        with output:
+            clear_output(wait=True)
+            fig, axes = plt.subplots(2, 1, figsize=(11, 5.5))
+            axes[0].plot(t * 1000, signal, linewidth=1.1)
+            axes[0].set_title("位相を変えた合成波: 300 Hz + 900 Hz")
+            axes[0].set_xlabel("時間 [ミリ秒]")
+            axes[0].set_ylabel("振幅")
+
+            markerline, stemlines, baseline = axes[1].stem(freqs, measured)
+            markerline.set_markersize(7)
+            stemlines.set_linewidth(1.5)
+            baseline.set_linewidth(0.8)
+            axes[1].set_xlim(0, 1200)
+            axes[1].set_ylim(-np.pi, np.pi)
+            axes[1].set_yticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
+            axes[1].set_yticklabels(["-π", "-π/2", "0", "π/2", "π"])
+            axes[1].set_title("FFTの位相スペクトル（振幅が大きい成分だけを表示）")
+            axes[1].set_xlabel("周波数 [Hz]")
+            axes[1].set_ylabel("位相 [rad]")
+            plt.tight_layout()
+            plt.show()
+
+            display(
+                pd.DataFrame(
+                    {
+                        "周波数 [Hz]": freqs,
+                        "設定した位相 [rad]": expected,
+                        "FFTで読める位相 [rad]": measured,
+                    }
+                ).round(3)
+            )
+
+    phase_300.observe(update, names="value")
+    phase_900.observe(update, names="value")
+    display(widgets.VBox([phase_300, phase_900]), output)
+    update()
 
 
 def display_mfcc_summary(mfcc):
@@ -1196,13 +1383,13 @@ def evaluate_lstm(model, X_seq, seq_lengths, y, train_idx, test_idx, label_encod
     """テストデータでLSTMを評価し，授業で読むための結果を表示する。
 
     表示するもの:
-        majority baseline: 最も多い感情だけを予測する単純な基準。
+        多数派ベースライン: 最も多い感情だけを予測する単純な基準。
         accuracy / macro F1: 全体の正解率と，感情ごとのバランスを見た指標。
         predicted_count: モデルの予測が特定ラベルに偏っていないかを見る表。
         confusion matrix: どの感情をどの感情と間違えたかを見る表。
     """
     # ノートブック「実行後の結果の見方」に対応する評価処理。
-    # majority baseline，accuracy，macro F1，予測分布，混同行列をまとめて表示する。
+    # 多数派ベースライン，accuracy，macro F1，予測分布，混同行列をまとめて表示する。
     test_loader = make_loader(X_seq, seq_lengths, y, test_idx)
     model.eval()
     all_logits = []
