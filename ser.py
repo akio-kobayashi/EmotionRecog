@@ -290,6 +290,90 @@ def plot_stft_spectrogram_demo(sample_rate=4000):
     plt.show()
 
 
+def hz_to_mel(frequencies):
+    """Hzをメル尺度に変換する。
+
+    メル尺度では，低い周波数ではHzの違いが大きく反映され，高い周波数では
+    同じHz差でも相対的に小さく扱われる。
+    """
+    frequencies = np.asarray(frequencies, dtype=float)
+    return 2595 * np.log10(1 + frequencies / 700)
+
+
+def _make_tone_pair(first_freq, second_freq, sample_rate=16000, duration=0.55, gap=0.18):
+    """2つの純音を短い無音を挟んで並べる。"""
+    t = np.arange(int(sample_rate * duration)) / sample_rate
+    fade_len = max(1, int(sample_rate * 0.02))
+    fade = np.ones_like(t)
+    fade[:fade_len] = np.linspace(0, 1, fade_len)
+    fade[-fade_len:] = np.linspace(1, 0, fade_len)
+    first = 0.35 * np.sin(2 * np.pi * first_freq * t) * fade
+    second = 0.35 * np.sin(2 * np.pi * second_freq * t) * fade
+    silence = np.zeros(int(sample_rate * gap))
+    return np.concatenate([first, silence, second])
+
+
+def interactive_mel_scale_demo(sample_rate=16000):
+    """メル尺度の曲線と，同じHz差の低音・高音ペアを聴き比べる。"""
+    import ipywidgets as widgets
+
+    low_base = widgets.IntSlider(value=200, min=80, max=600, step=10, description="低音[Hz]")
+    high_base = widgets.IntSlider(value=2000, min=800, max=5000, step=100, description="高音[Hz]")
+    delta = widgets.IntSlider(value=50, min=20, max=120, step=10, description="差[Hz]")
+    output = widgets.Output()
+
+    def update(_=None):
+        low_pair = (low_base.value, low_base.value + delta.value)
+        high_pair = (high_base.value, high_base.value + delta.value)
+        freq_axis = np.linspace(0, max(6000, high_pair[1] + 500), 600)
+        mel_axis = hz_to_mel(freq_axis)
+        low_mel = hz_to_mel(low_pair)
+        high_mel = hz_to_mel(high_pair)
+
+        with output:
+            clear_output(wait=True)
+            fig, ax = plt.subplots(figsize=(9, 4))
+            ax.plot(freq_axis, mel_axis, color="black", linewidth=1.5)
+            ax.plot(low_pair, low_mel, "o-", color="tab:blue", label="低音側")
+            ax.plot(high_pair, high_mel, "o-", color="tab:red", label="高音側")
+            ax.set_title("Hzとメル尺度の対応")
+            ax.set_xlabel("周波数 [Hz]")
+            ax.set_ylabel("メル尺度")
+            ax.legend()
+            plt.tight_layout()
+            plt.show()
+
+            display(
+                pd.DataFrame(
+                    [
+                        {
+                            "音域": "低音側",
+                            "周波数1 [Hz]": low_pair[0],
+                            "周波数2 [Hz]": low_pair[1],
+                            "Hz差": delta.value,
+                            "メル差": low_mel[1] - low_mel[0],
+                        },
+                        {
+                            "音域": "高音側",
+                            "周波数1 [Hz]": high_pair[0],
+                            "周波数2 [Hz]": high_pair[1],
+                            "Hz差": delta.value,
+                            "メル差": high_mel[1] - high_mel[0],
+                        },
+                    ]
+                ).round(2)
+            )
+            print("低音側")
+            display(Audio(_make_tone_pair(*low_pair, sample_rate=sample_rate), rate=sample_rate))
+            print("高音側")
+            display(Audio(_make_tone_pair(*high_pair, sample_rate=sample_rate), rate=sample_rate))
+
+    for widget in (low_base, high_base, delta):
+        widget.observe(update, names="value")
+    display(widgets.VBox([low_base, high_base, delta]), output)
+    update()
+
+
 def compute_mel_db(y, sr):
     """音声から対数メルスペクトログラムを計算する。
 
@@ -426,7 +510,10 @@ def plot_mfcc(y, sr, n_mfcc=20):
     """
     mfcc = compute_mfcc(y, sr, n_mfcc=n_mfcc)
 
-    # C0は全体のエネルギーに近い情報を持ち，色の範囲を支配しやすい。
+    # C0は対数メルスペクトルをDCTしたときの直流成分に相当し，
+    # スペクトル全体の平均的な大きさを表す。
+    # 音声のエネルギーに近い情報を含むが，時間波形のエネルギーそのものではない。
+    # そのため値の範囲が大きくなりやすく，色の範囲を支配しやすい。
     # 教材としてはC1以降を係数ごとに標準化し，時間変化を見やすくする。
     mfcc_view = mfcc[1:]
     row_mean = mfcc_view.mean(axis=1, keepdims=True)
@@ -600,7 +687,7 @@ def compare_samples(df, default_left="happy", default_right="sad", sample_rate=S
             axes[1, col].set_title("スペクトログラム")
 
             mfcc_z = _mfcc_zscore_for_display(y, sr)
-            img = librosa.display.specshow(
+            librosa.display.specshow(
                 mfcc_z,
                 sr=sr,
                 hop_length=160,
@@ -612,7 +699,6 @@ def compare_samples(df, default_left="happy", default_right="sad", sample_rate=S
             )
             axes[2, col].set_title("MFCC（C1以降を係数ごとに標準化）")
             axes[2, col].set_ylabel("MFCC係数")
-        fig.colorbar(img, ax=axes[2, :], label="係数内zスコア")
         plt.tight_layout()
         plt.show()
 
@@ -642,80 +728,6 @@ def compare_samples(df, default_left="happy", default_right="sad", sample_rate=S
         ]
     )
     display(ui, output)
-    update()
-
-
-def interactive_fft_phase_demo(sample_rate=8000, duration=0.05):
-    """300 Hzと900 Hzの成分に位相差を与え，FFTの位相スペクトルを見る。"""
-    import ipywidgets as widgets
-
-    phase_300 = widgets.FloatSlider(
-        value=np.pi / 3,
-        min=-np.pi,
-        max=np.pi,
-        step=np.pi / 12,
-        description="300 Hz位相",
-        readout_format=".2f",
-    )
-    phase_900 = widgets.FloatSlider(
-        value=-np.pi / 4,
-        min=-np.pi,
-        max=np.pi,
-        step=np.pi / 12,
-        description="900 Hz位相",
-        readout_format=".2f",
-    )
-    output = widgets.Output()
-
-    def update(_=None):
-        t = np.arange(int(sample_rate * duration)) / sample_rate
-        freqs = np.array([300, 900])
-        amps = np.array([1.0, 0.6])
-        phases = np.array([phase_300.value, phase_900.value])
-        signal = amps[0] * np.cos(2 * np.pi * freqs[0] * t + phases[0])
-        signal += amps[1] * np.cos(2 * np.pi * freqs[1] * t + phases[1])
-
-        fft_freqs = np.fft.rfftfreq(len(signal), d=1 / sample_rate)
-        fft_values = np.fft.rfft(signal)
-        indices = [np.argmin(np.abs(fft_freqs - freq)) for freq in freqs]
-        measured = np.angle(fft_values[indices])
-        expected = np.angle(np.exp(1j * phases))
-
-        with output:
-            clear_output(wait=True)
-            fig, axes = plt.subplots(2, 1, figsize=(11, 5.5))
-            axes[0].plot(t * 1000, signal, linewidth=1.1)
-            axes[0].set_title("位相を変えた合成波: 300 Hz + 900 Hz")
-            axes[0].set_xlabel("時間 [ミリ秒]")
-            axes[0].set_ylabel("振幅")
-
-            markerline, stemlines, baseline = axes[1].stem(freqs, measured)
-            markerline.set_markersize(7)
-            stemlines.set_linewidth(1.5)
-            baseline.set_linewidth(0.8)
-            axes[1].set_xlim(0, 1200)
-            axes[1].set_ylim(-np.pi, np.pi)
-            axes[1].set_yticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
-            axes[1].set_yticklabels(["-π", "-π/2", "0", "π/2", "π"])
-            axes[1].set_title("FFTの位相スペクトル（振幅が大きい成分だけを表示）")
-            axes[1].set_xlabel("周波数 [Hz]")
-            axes[1].set_ylabel("位相 [rad]")
-            plt.tight_layout()
-            plt.show()
-
-            display(
-                pd.DataFrame(
-                    {
-                        "周波数 [Hz]": freqs,
-                        "設定した位相 [rad]": expected,
-                        "FFTで読める位相 [rad]": measured,
-                    }
-                ).round(3)
-            )
-
-    phase_300.observe(update, names="value")
-    phase_900.observe(update, names="value")
-    display(widgets.VBox([phase_300, phase_900]), output)
     update()
 
 
