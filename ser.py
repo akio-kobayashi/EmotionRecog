@@ -396,6 +396,46 @@ def interactive_mel_scale_demo(sample_rate=16000):
     update()
 
 
+def plot_mel_filterbank(sample_rate=16000, n_fft=1024, n_mels=24, fmax=8000):
+    """メルフィルタバンクを周波数軸上に描く．
+
+    メルフィルタバンクは，FFTで得られた周波数成分を，人間の聴覚に近い
+    メル尺度上の帯域ごとに足し合わせるための三角形フィルタ群である．
+    低音側ではフィルタの幅が狭く，高音側では幅が広くなる．
+    """
+    filters = librosa.filters.mel(
+        sr=sample_rate,
+        n_fft=n_fft,
+        n_mels=n_mels,
+        fmin=0,
+        fmax=fmax,
+        norm=None,
+    )
+    frequencies = librosa.fft_frequencies(sr=sample_rate, n_fft=n_fft)
+    mel_centers = librosa.mel_frequencies(n_mels=n_mels + 2, fmin=0, fmax=fmax)[1:-1]
+
+    fig, ax = plt.subplots(figsize=(11, 4))
+    colors = plt.cm.viridis(np.linspace(0.05, 0.95, n_mels))
+    for i, filt in enumerate(filters):
+        ax.plot(frequencies, filt, color=colors[i], linewidth=1.0, alpha=0.9)
+    ax.scatter(
+        mel_centers,
+        np.ones_like(mel_centers),
+        s=14,
+        color="black",
+        label="各フィルタの中心周波数",
+        zorder=3,
+    )
+    ax.set_xlim(0, fmax)
+    ax.set_ylim(0, 1.05)
+    ax.set_title("メルフィルタバンク")
+    ax.set_xlabel("周波数 [Hz]")
+    ax.set_ylabel("重み")
+    ax.legend(loc="upper right")
+    plt.tight_layout()
+    plt.show()
+
+
 def compute_mel_db(y, sr):
     """音声から対数メルスペクトログラムを計算する．
 
